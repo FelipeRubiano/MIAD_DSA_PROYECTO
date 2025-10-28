@@ -1,0 +1,5 @@
+outs:
+- md5: cf87506c5be947a5cda69511b2bf3ef3
+  size: 561600
+  hash: md5
+  path: Bank Customer Churn Prediction.csv
