@@ -1,0 +1,36 @@
+# configs/config.yaml
+
+data:
+  data_dir: "../data/processed" 
+  X_train: "X_train.csv"
+  X_test: "X_test.csv"
+  y_train: "y_train.csv"
+  y_test: "y_test.csv"
+
+model:
+  type: "xgboost"
+  params:
+    n_estimators: 300
+    learning_rate: 0.05
+    max_depth: 4
+    subsample: 0.8
+    colsample_bytree: 0.8
+    random_state: 42
+    eval_metric: "logloss"
+
+balance:
+  use_smote: true                 # true = aplica SMOTE; entonces scale_pos_weight=1
+  use_scale_pos_weight: false  
+
+training:
+  test_threshold: 0.5
+
+artifacts:
+  dir: "./artifacts"
+  model_filename: "model.joblib"
+  metrics_filename: "metrics.json"
+
+mlflow:
+  enabled: false        
+  experiment_name: "bankchurn-xgb"
+  tracking_uri: "file:./mlruns"  
