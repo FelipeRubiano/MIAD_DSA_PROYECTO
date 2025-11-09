@@ -1,11 +1,18 @@
 # configs/config.yaml
+# Configuración del proyecto Bank Customer Churn
+
+
+# Datos
 
 data:
-  data_dir: "../data/processed" 
+  data_dir: "../data/processed"
   X_train: "X_train.csv"
   X_test: "X_test.csv"
   y_train: "y_train.csv"
   y_test: "y_test.csv"
+
+
+# Modelo (entrenamiento)
 
 model:
   type: "xgboost"
@@ -18,19 +25,65 @@ model:
     random_state: 42
     eval_metric: "logloss"
 
+# Balanceo de clases
 balance:
-  use_smote: true                 # true = aplica SMOTE; entonces scale_pos_weight=1
-  use_scale_pos_weight: false  
+  use_smote: true              # true => aplica SMOTE; entonces scale_pos_weight=1
+  use_scale_pos_weight: false  # alternativa si no se usa SMOTE
+
+
+# Entrenamiento / evaluación
 
 training:
-  test_threshold: 0.5
+  test_threshold: 0.5          # umbral para métricas en validación
+
+
+# Artefactos
 
 artifacts:
   dir: "./artifacts"
   model_filename: "model.joblib"
   metrics_filename: "metrics.json"
 
+
+# MLflow
+
 mlflow:
-  enabled: false        
+  enabled: false
   experiment_name: "bankchurn-xgb"
-  tracking_uri: "file:./mlruns"  
+  tracking_uri: "file:./mlruns"
+
+
+# Dashboard (uso del modelo en el tablero)
+
+dashboard:
+  # Modelo a cargar en el tablero (puedes cambiar a "models/RandomForest.pkl" si quieres probar el otro)
+  model_path: "models/XGBoost.pkl"
+
+  # Columna objetivo (si tu CSV de prueba la trae, el tablero podrá calcular métricas)
+  target_col: "Churn"
+
+  # Umbral inicial del slider en el tablero
+  threshold: 0.5
+
+  # Columnas de inferencia en el mismo orden que usó el modelo al entrenar
+  # Ajusta esta lista según tu dataset real.
+  feature_columns:
+    - Customer_Age
+    - Gender
+    - Dependent_count
+    - Education_Level
+    - Marital_Status
+    - Income_Category
+    - Card_Category
+    - Months_on_book
+    - Total_Relationship_Count
+    - Months_Inactive_12_mon
+    - Contacts_Count_12_mon
+    - Credit_Limit
+    - Total_Revolving_Bal
+    - Avg_Open_To_Buy
+    - Total_Amt_Chng_Q4_Q1
+    - Total_Trans_Amt
+    - Total_Trans_Ct
+    - Total_Ct_Chng_Q4_Q1
+    - Avg_Utilization_Ratio
