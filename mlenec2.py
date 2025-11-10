@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Entrena modelos para churn bancario y registra métricas/artefactos en MLflow.
-Modelos: Regresión Logística, RF + ADASYN, RF + SMOTEENN.
-Sin visualizaciones.
+Entrena modelos de churn y registra métricas/parámetros/modelos en MLflow.
+Incluye:
+- Regresión Logística balanceada
+- RandomForest + ADASYN (ejemplos de hiperparámetros)
+- RandomForest + SMOTEENN (múltiples combinaciones para experimentar)
 """
 
 import warnings
@@ -11,17 +13,6 @@ warnings.filterwarnings("ignore")
 import numpy as np
 import pandas as pd
 
-# === Datos ===
-DATA_PATH = "Bank Customer Churn Prediction.csv"  # ajusta si tu CSV tiene otro nombre
-TARGET_COL = "churn"
-NUM_COLS = ["credit_score", "age", "tenure", "balance", "products_number", "estimated_salary"]
-CAT_COLS = ["country", "gender"]
-ID_COLS  = ["customer_id"]
-
-RANDOM_STATE = 42
-TEST_SIZE = 0.2
-
-# === Scikit-learn / imblearn ===
 from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
@@ -36,29 +27,42 @@ from imblearn.over_sampling import ADASYN
 from imblearn.combine import SMOTEENN
 from imblearn.pipeline import Pipeline as ImbPipeline
 
-# === MLflow ===
 import mlflow
 import mlflow.sklearn
+from mlflow.models import infer_signature
 
-# -----------------------------
-# Configuración de MLflow
-# -----------------------------
-# Cambia localhost por la IP del servidor MLflow si aplica
+# ========= Configuración general =========
+DATA_PATH   = "Bank Customer Churn Prediction.csv"
+TARGET_COL  = "churn"
+NUM_COLS    = ["credit_score", "age", "tenure", "balance", "products_number", "estimated_salary"]
+CAT_COLS    = ["country", "gender"]
+ID_COLS     = ["customer_id"]
+
+TEST_SIZE     = 0.2
+RANDOM_STATE  = 42
+
+# ========= Configuración MLflow =========
 mlflow.set_tracking_uri("http://localhost:8050")
 mlflow.set_experiment("bank-churn-local-tests")
-print("✔️ MLflow configurado")
+print("✔️ MLflow configurado correctamente")
 
-# -----------------------------
-# Funciones auxiliares
-# -----------------------------
+# ========= Funciones =========
+def make_ohe_dense():
+    """OneHotEncoder compatible con imblearn."""
+    try:
+        return OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+    except TypeError:
+        return OneHotEncoder(handle_unknown="ignore", sparse=False)
+
 def make_preprocess(num_cols, cat_cols):
     numeric_proc = Pipeline(steps=[("scaler", StandardScaler())])
-    categorical_proc = Pipeline(steps=[("ohe", OneHotEncoder(handle_unknown="ignore"))])
+    categorical_proc = Pipeline(steps=[("ohe", make_ohe_dense())])
     preprocess = ColumnTransformer(
         transformers=[
             ("num", numeric_proc, num_cols),
             ("cat", categorical_proc, cat_cols),
-        ]
+        ],
+        remainder="drop"
     )
     return preprocess
 
@@ -72,21 +76,19 @@ def compute_metrics(y_true, y_pred, y_prob):
     }
 
 def train_eval_log(nombre_modelo, pipeline, X_train, y_train, X_test, y_test, extra_params=None):
-    """
-    Entrena, evalúa y registra en MLflow (parámetros, métricas, modelo).
-    """
+    """Entrena, evalúa y registra métricas y modelo en MLflow."""
     with mlflow.start_run(run_name=nombre_modelo):
         pipeline.fit(X_train, y_train)
+
         y_pred = pipeline.predict(X_test)
         y_prob = pipeline.predict_proba(X_test)
-
         metrics = compute_metrics(y_test, y_pred, y_prob)
 
+        # Registrar parámetros
         try:
             model_params = pipeline.named_steps["model"].get_params()
         except Exception:
             model_params = {}
-
         if extra_params:
             model_params.update(extra_params)
 
@@ -95,19 +97,27 @@ def train_eval_log(nombre_modelo, pipeline, X_train, y_train, X_test, y_test, ex
                 mlflow.log_param(k, v)
             except Exception:
                 mlflow.log_param(k, str(v))
-
         for k, v in metrics.items():
             mlflow.log_metric(k, v)
 
-        mlflow.sklearn.log_model(pipeline, artifact_path=f"model_{nombre_modelo}")
+        # Firma e input_example
+        sample_X = X_test.head(5)
+        sample_pred = pipeline.predict_proba(sample_X)
+        signature = infer_signature(sample_X, sample_pred)
+
+        mlflow.sklearn.log_model(
+            pipeline,
+            name=f"model_{nombre_modelo}",
+            signature=signature,
+            input_example=sample_X
+        )
 
         print(f"✅ '{nombre_modelo}' registrado | {metrics}")
         return metrics
 
-# -----------------------------
-# Ejecución principal
-# -----------------------------
+# ========= Ejecución principal =========
 def main():
+    # --- Cargar datos ---
     df = pd.read_csv(DATA_PATH)
     print("Dimensiones del dataset:", df.shape)
 
@@ -120,30 +130,47 @@ def main():
 
     preprocess = make_preprocess(NUM_COLS, CAT_COLS)
 
-    # --- Modelo 1: Regresión Logística balanceada ---
+    # -------- Modelo 1: Regresión Logística balanceada --------
     logreg = LogisticRegression(max_iter=1000, class_weight="balanced", random_state=RANDOM_STATE)
     pipe_lr = Pipeline(steps=[("preprocess", preprocess), ("model", logreg)])
     train_eval_log("LogReg_Balanceada", pipe_lr, X_train, y_train, X_test, y_test)
 
-    # --- Modelo 2: RF + ADASYN ---
-    adasyn = ADASYN(random_state=RANDOM_STATE)
-    rf_adasyn = RandomForestClassifier(n_estimators=500, random_state=RANDOM_STATE, n_jobs=-1)
-    pipe_rf_adasyn = ImbPipeline(steps=[
-        ("preprocess", preprocess),
-        ("adasyn", adasyn),
-        ("model", rf_adasyn),
-    ])
-    train_eval_log("RandomForest_ADASYN", pipe_rf_adasyn, X_train, y_train, X_test, y_test)
+    # -------- Modelo 2: RandomForest + ADASYN --------
+    rf_adasyn_configs = [
+        {"n_estimators": 300, "max_depth": None, "min_samples_split": 2},
+        {"n_estimators": 300, "max_depth": 10, "min_samples_split": 5},
+        {"n_estimators": 500, "max_depth": 15, "min_samples_split": 5},
+    ]
+    for cfg in rf_adasyn_configs:
+        rf_adasyn = RandomForestClassifier(**cfg, random_state=RANDOM_STATE, n_jobs=-1)
+        pipe_rf_adasyn = ImbPipeline(steps=[
+            ("preprocess", preprocess),
+            ("adasyn", ADASYN(random_state=RANDOM_STATE)),
+            ("model", rf_adasyn),
+        ])
+        name = f"RF_ADASYN_ne{cfg['n_estimators']}_md{cfg['max_depth']}_mss{cfg['min_samples_split']}"
+        train_eval_log(name, pipe_rf_adasyn, X_train, y_train, X_test, y_test, extra_params=cfg)
 
-    # --- Modelo 3: RF + SMOTEENN ---
-    smoteenn = SMOTEENN(random_state=RANDOM_STATE)
-    rf_smoteenn = RandomForestClassifier(n_estimators=500, random_state=RANDOM_STATE, n_jobs=-1)
-    pipe_rf_smoteenn = ImbPipeline(steps=[
-        ("preprocess", preprocess),
-        ("smoteenn", smoteenn),
-        ("model", rf_smoteenn),
-    ])
-    train_eval_log("RandomForest_SMOTEENN", pipe_rf_smoteenn, X_train, y_train, X_test, y_test)
+    # -------- Modelo 3: RandomForest + SMOTEENN --------
+    rf_smoteenn_configs = [
+        {"n_estimators": 200, "max_depth": None, "min_samples_split": 2, "min_samples_leaf": 1, "max_features": "sqrt"},
+        {"n_estimators": 300, "max_depth": 10, "min_samples_split": 5, "min_samples_leaf": 2, "max_features": "sqrt"},
+        {"n_estimators": 400, "max_depth": 15, "min_samples_split": 4, "min_samples_leaf": 3, "max_features": "log2"},
+        {"n_estimators": 500, "max_depth": 20, "min_samples_split": 3, "min_samples_leaf": 2, "max_features": None},
+        {"n_estimators": 700, "max_depth": 25, "min_samples_split": 5, "min_samples_leaf": 4, "max_features": "sqrt"},
+        {"n_estimators": 800, "max_depth": 30, "min_samples_split": 10, "min_samples_leaf": 2, "max_features": "log2"},
+        {"n_estimators": 1000, "max_depth": None, "min_samples_split": 2, "min_samples_leaf": 1, "max_features": "sqrt"},
+    ]
+
+    for cfg in rf_smoteenn_configs:
+        rf_smoteenn = RandomForestClassifier(**cfg, random_state=RANDOM_STATE, n_jobs=-1)
+        pipe_rf_smoteenn = ImbPipeline(steps=[
+            ("preprocess", preprocess),
+            ("smoteenn", SMOTEENN(random_state=RANDOM_STATE)),
+            ("model", rf_smoteenn),
+        ])
+        name = f"RF_SMOTEENN_ne{cfg['n_estimators']}_md{cfg['max_depth']}_mss{cfg['min_samples_split']}_msl{cfg['min_samples_leaf']}_mf{cfg['max_features']}"
+        train_eval_log(name, pipe_rf_smoteenn, X_train, y_train, X_test, y_test, extra_params=cfg)
 
 if __name__ == "__main__":
     main()
