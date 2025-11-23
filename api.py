@@ -3,8 +3,14 @@
 API de churn usando el mejor modelo:
 RandomForest + ADASYN con n_estimators=300, max_depth=10, min_samples_split=5
 
-Ejemplo de ejecución:
-    uvicorn api_churn_rf_adasyn:app --reload
+Formas de ejecución:
+
+1) Ejecutando directamente el .py (recomendado para ti ahora):
+    python api_churn_rf_adasyn.py
+   -> Levanta uvicorn en host 0.0.0.0 y puerto 8001
+
+2) Ejecutando con uvicorn desde consola:
+    uvicorn api_churn_rf_adasyn:app --host 0.0.0.0 --port 8001 --reload
 
 Requisitos:
     - El archivo "Bank Customer Churn Prediction.csv" debe estar en el mismo directorio.
@@ -32,6 +38,8 @@ from sklearn.ensemble import RandomForestClassifier
 
 from imblearn.over_sampling import ADASYN
 from imblearn.pipeline import Pipeline as ImbPipeline
+
+import uvicorn
 
 
 # ========= Configuración general =========
@@ -145,7 +153,7 @@ def train_best_rf_adasyn():
     return pipeline, metrics
 
 
-# ========= Inicializar modelo al arrancar la API =========
+# ========= Entrenar modelo al cargar el módulo =========
 print("🚀 Entrenando modelo RF_ADASYN_ne300_md10_mss5 para la API...")
 MODEL, MODEL_METRICS = train_best_rf_adasyn()
 print("✅ Modelo listo para servir predicciones.")
@@ -212,3 +220,16 @@ def predict_batch(batch: CustomerFeaturesBatch):
         )
 
     return {"results": results}
+
+
+# ========= Punto de entrada para ejecutar y dejarlo escuchando =========
+if __name__ == "__main__":
+    # Host 0.0.0.0 para que responda a la IP pública de la VM
+    # Puerto 8001 como pediste
+    print("🌐 Iniciando servidor en 0.0.0.0:8001 ...")
+    uvicorn.run(
+        "api_churn_rf_adasyn:app",
+        host="0.0.0.0",
+        port=8001,
+        reload=False  # puedes poner True en desarrollo si quieres autoreload
+    )
