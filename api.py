@@ -228,7 +228,7 @@ if __name__ == "__main__":
     # Puerto 8001 como pediste
     print("🌐 Iniciando servidor en 0.0.0.0:8001 ...")
     uvicorn.run(
-        "api_churn_rf_adasyn:app",
+        "api:app",
         host="0.0.0.0",
         port=8001,
         reload=False  # puedes poner True en desarrollo si quieres autoreload
